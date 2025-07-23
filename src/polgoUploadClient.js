@@ -7,18 +7,36 @@ import axios from "axios";
 class PolgoUploadClient {
   /**
    * Inicializa o cliente de upload
-   * @param {Object} config - Configurações do cliente
-   * @param {boolean} [config.isProd=false] - Define se está em ambiente de produção
-   * @param {string} config.token - Token de autorização Bearer
-   * @param {string} config.stack - Nome da stack/aplicação
-   * @param {string} [config.baseUrl] - URL base personalizada para a API
-   * @param {Object} [config.endpoints] - Endpoints personalizados
-   * @param {string} [config.endpoints.upload] - Endpoint de upload personalizado
-   * @param {string} [config.endpoints.recuperar] - Endpoint de recuperação personalizado
-   * @param {string} [config.endpoints.listar] - Endpoint de listagem personalizado
+   * @param {Object|boolean} configOrIsProd - Configurações do cliente OU isProd (retrocompatibilidade)
+   * @param {boolean} [configOrIsProd.isProd=false] - Define se está em ambiente de produção
+   * @param {string} configOrIsProd.token - Token de autorização Bearer
+   * @param {string} configOrIsProd.stack - Nome da stack/aplicação
+   * @param {string} [configOrIsProd.baseUrl] - URL base personalizada para a API
+   * @param {Object} [configOrIsProd.endpoints] - Endpoints personalizados
+   * @param {string} [configOrIsProd.endpoints.upload] - Endpoint de upload personalizado
+   * @param {string} [configOrIsProd.endpoints.recuperar] - Endpoint de recuperação personalizado
+   * @param {string} [configOrIsProd.endpoints.listar] - Endpoint de listagem personalizado
+   * @param {string} [token] - Token de autorização (usado na assinatura antiga)
+   * @param {string} [stack] - Nome da stack (usado na assinatura antiga)
    * 
    */
-  constructor(config = {}) {
+  constructor(configOrIsProd = {}, token, stack) {
+    let config;
+    
+    // Verifica se está usando a assinatura antiga (isProd, token, stack)
+    if (typeof configOrIsProd === 'boolean' || (typeof configOrIsProd !== 'object' || Array.isArray(configOrIsProd))) {
+      // Assinatura antiga: constructor(isProd, token, stack)
+      console.warn('⚠️  A assinatura PolgoUploadClient(isProd, token, stack) está deprecated. Use: new PolgoUploadClient({ isProd, token, stack })');
+      config = {
+        isProd: configOrIsProd,
+        token: token,
+        stack: stack
+      };
+    } else {
+      // Nova assinatura: constructor(config)
+      config = configOrIsProd;
+    }
+
     // Validação de parâmetros obrigatórios
     if (!config.token) {
       throw new Error('Token de autorização é obrigatório');
@@ -50,23 +68,6 @@ class PolgoUploadClient {
       recuperar: `${this.baseUrl}${this.endpoints.recuperar}`,
       listar: `${this.baseUrl}${this.endpoints.listar}`
     };
-  }
-
-  /**
-   * Método estático para manter retrocompatibilidade com a assinatura antiga
-   * @deprecated Use o constructor com objeto de configuração
-   * @param {boolean} isProd - Define se está em ambiente de produção
-   * @param {string} token - Token de autorização
-   * @param {string} stack - Nome da stack
-   * @returns {PolgoUploadClient} Nova instância do cliente
-   */
-  static createLegacy(isProd, token, stack) {
-    console.warn('⚠️  PolgoUploadClient.createLegacy() está deprecated. Use o constructor com objeto de configuração.');
-    return new PolgoUploadClient({
-      isProd,
-      token,
-      stack
-    });
   }
 
   async recuperarArquivos(bucket, key) {
