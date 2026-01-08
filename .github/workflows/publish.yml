@@ -1,0 +1,49 @@
+name: Publicar no NPM
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'package.json'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: read
+      id-token: write
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Instalar dependencias
+        run: npm install
+
+      - name: Verificar se versao ja existe no NPM
+        id: check_version
+        run: |
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          
+          if npm view "$PACKAGE_NAME@$PACKAGE_VERSION" version 2>/dev/null; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "A versao $PACKAGE_VERSION ja existe no NPM"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Nova versao $PACKAGE_VERSION sera publicada"
+          fi
+
+      - name: Publicar no NPM
+        if: steps.check_version.outputs.exists == 'false'
+        run: npm publish --access public --provenance
