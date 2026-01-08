@@ -13,10 +13,6 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     
-    permissions:
-      contents: read
-      id-token: write
-    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,4 +42,10 @@ jobs:
 
       - name: Publicar no NPM
         if: steps.check_version.outputs.exists == 'false'
-        run: npm publish --access public --provenance
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Versao ja publicada
+        if: steps.check_version.outputs.exists == 'true'
+        run: echo "Versao ja existe no NPM. Incremente a versao no package.json para publicar."
