@@ -67,13 +67,14 @@ const arquivos = await client.listarArquivos('nome-do-bucket', 'caminho/diretori
 
 ## Configuracao Avancada
 
-Voce pode customizar a URL base e os endpoints:
+Voce pode customizar a URL base, timeout e os endpoints:
 
 ```javascript
 const client = new PolgoUploadClient({
   token: 'seu-token',
   stack: 'sua-stack',
   isProd: true,
+  timeout: 60000, // 60 segundos (padrao: 30000)
   baseUrl: 'https://sua-api.com',
   endpoints: {
     upload: '/custom/upload',
