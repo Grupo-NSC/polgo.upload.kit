@@ -1,42 +1,132 @@
-import axios from "axios";
+import axios, { AxiosError, AxiosProgressEvent } from "axios";
+
+/**
+ * Configuracoes do cliente de upload
+ */
+export interface PolgoUploadClientConfig {
+  /** Define se esta em ambiente de producao */
+  isProd?: boolean;
+  /** Token de autorizacao Bearer */
+  token: string;
+  /** Nome da stack/aplicacao */
+  stack: string;
+  /** URL base personalizada para a API */
+  baseUrl?: string;
+  /** Timeout das requisicoes em ms (padrao: 30s) */
+  timeout?: number;
+  /** Endpoints personalizados */
+  endpoints?: EndpointsConfig;
+}
+
+/**
+ * Configuracao de endpoints personalizados
+ */
+export interface EndpointsConfig {
+  /** Endpoint de upload personalizado */
+  upload?: string;
+  /** Endpoint de recuperacao personalizado */
+  recuperar?: string;
+  /** Endpoint de listagem personalizado */
+  listar?: string;
+  [key: string]: string | undefined;
+}
+
+/**
+ * Opcoes para upload de arquivo
+ */
+export interface UploadOptions {
+  /** Diretorio de destino no bucket */
+  diretorio?: string;
+  /** Nome personalizado para o arquivo */
+  nomeArquivo?: string;
+  /**
+   * Otimizacao conforme a lambda espera:
+   * - false: desabilita otimizacao
+   * - "jpeg" | "webp" | "avif": formato desejado (padrao: "webp")
+   * - { formato }: compatibilidade com versoes antigas (aceita "none" para desabilitar)
+   */
+  otimizacao?: false | "jpeg" | "webp" | "avif" | { formato?: string };
+  /** Forca conversao mesmo se o arquivo resultante for maior que o original */
+  forcarConversao?: boolean;
+}
+
+/**
+ * Resultado do upload de arquivo
+ */
+export interface UploadResult {
+  /** ID unico do arquivo */
+  id: string;
+  /** URL do arquivo no bucket */
+  endereco: string;
+  /** Tamanho original do arquivo em bytes */
+  tamanhoOriginal: number;
+  /** Tamanho do arquivo apos otimizacao em bytes */
+  tamanhoOtimizado: number;
+  /** Indica se o arquivo foi otimizado */
+  otimizado: boolean;
+  /** Formato MIME original do arquivo */
+  formatoOriginal: string;
+  /** Formato MIME apos otimizacao */
+  formatoOtimizado: string;
+  /** Percentual de economia de espaco (pode ser negativo se forcar conversao) */
+  economiaPercentual: number;
+}
+
+/**
+ * Resultado da recuperacao de arquivo
+ */
+export interface RecuperarArquivoResult {
+  /** URL pre-assinada do arquivo */
+  url?: string;
+  /** Dados do arquivo */
+  [key: string]: unknown;
+}
+
+/**
+ * Item da listagem de arquivos
+ */
+export interface ArquivoListItem {
+  /** Chave do arquivo no bucket */
+  key: string;
+  /** Tamanho do arquivo em bytes */
+  size?: number;
+  /** Data da ultima modificacao */
+  lastModified?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Callback de progresso do upload
+ */
+export type ProgressCallback = (percentCompleted: number) => void;
+
+/**
+ * URLs internas do cliente
+ */
+interface ClientUrls {
+  upload: string;
+  recuperar: string;
+  listar: string;
+}
 
 /**
  * Cliente para upload de arquivos para o servico Polgo
- * @class PolgoUploadClient
  */
 class PolgoUploadClient {
+  private isProd: boolean;
+  private ambiente: "producao" | "dev";
+  private token: string;
+  private stack: string;
+  private timeout: number;
+  private baseUrl: string;
+  private endpoints: Required<Pick<EndpointsConfig, "upload" | "recuperar" | "listar">> & EndpointsConfig;
+  private urls: ClientUrls;
+
   /**
    * Inicializa o cliente de upload
-   * @param {Object|boolean} configOrIsProd - Configuracoes do cliente OU isProd (retrocompatibilidade)
-   * @param {boolean} [configOrIsProd.isProd=false] - Define se esta em ambiente de producao
-   * @param {string} configOrIsProd.token - Token de autorizacao Bearer
-   * @param {string} configOrIsProd.stack - Nome da stack/aplicacao
-   * @param {string} [configOrIsProd.baseUrl] - URL base personalizada para a API
-   * @param {number} [configOrIsProd.timeout=30000] - Timeout das requisicoes em ms (padrao: 30s)
-   * @param {Object} [configOrIsProd.endpoints] - Endpoints personalizados
-   * @param {string} [configOrIsProd.endpoints.upload] - Endpoint de upload personalizado
-   * @param {string} [configOrIsProd.endpoints.recuperar] - Endpoint de recuperacao personalizado
-   * @param {string} [configOrIsProd.endpoints.listar] - Endpoint de listagem personalizado
-   * @param {string} [token] - Token de autorizacao (usado na assinatura antiga)
-   * @param {string} [stack] - Nome da stack (usado na assinatura antiga)
+   * @param config - Configuracoes do cliente
    */
-  constructor(configOrIsProd = {}, token, stack) {
-    let config;
-
-    // Verifica se esta usando a assinatura antiga (isProd, token, stack)
-    if (typeof configOrIsProd === "boolean" || (typeof configOrIsProd !== "object" || Array.isArray(configOrIsProd))) {
-      // Assinatura antiga: constructor(isProd, token, stack)
-      console.warn("Aviso: a assinatura PolgoUploadClient(isProd, token, stack) esta deprecated. Use: new PolgoUploadClient({ isProd, token, stack })");
-      config = {
-        isProd: configOrIsProd,
-        token: token,
-        stack: stack
-      };
-    } else {
-      // Nova assinatura: constructor(config)
-      config = configOrIsProd;
-    }
-
+  constructor(config: PolgoUploadClientConfig) {
     // Validacao de parametros obrigatorios
     if (!config.token) {
       throw new Error("Token de autorizacao e obrigatorio");
@@ -53,7 +143,7 @@ class PolgoUploadClient {
     this.timeout = config.timeout || 30000;
 
     // URL base configuravel
-    this.baseUrl = config.baseUrl || "https://mkgplyz3tc.execute-api.us-east-1.amazonaws.com/lambdaUploadProducao";
+    this.baseUrl = config.baseUrl || "https://uploadws.polgo.com.br";
 
     // Endpoints configuraveis
     this.endpoints = {
@@ -73,10 +163,9 @@ class PolgoUploadClient {
 
   /**
    * Valida se o bucket foi informado
-   * @param {string} bucket - Nome do bucket
-   * @private
+   * @param bucket - Nome do bucket
    */
-  _validarBucket(bucket) {
+  private _validarBucket(bucket: string): void {
     if (!bucket || typeof bucket !== "string" || bucket.trim() === "") {
       throw new Error("Bucket e obrigatorio");
     }
@@ -84,11 +173,10 @@ class PolgoUploadClient {
 
   /**
    * Trata erros das requisicoes HTTP
-   * @param {Error} error - Erro capturado
-   * @param {string} operacao - Nome da operacao que falhou
-   * @private
+   * @param error - Erro capturado
+   * @param operacao - Nome da operacao que falhou
    */
-  _handleError(error, operacao) {
+  private _handleError(error: AxiosError<{ message?: string }>, operacao: string): never {
     if (error.response) {
       const status = error.response.status;
       const data = error.response.data;
@@ -117,15 +205,15 @@ class PolgoUploadClient {
 
   /**
    * Recupera um arquivo do bucket especificado
-   * @param {string} bucket - Nome do bucket
-   * @param {string} key - Chave (caminho) do arquivo no bucket
-   * @returns {Promise<Object>} Dados do arquivo recuperado
-   * @throws {Error} Se houver erro na requisicao ou arquivo nao encontrado
+   * @param bucket - Nome do bucket
+   * @param key - Chave (caminho) do arquivo no bucket
+   * @returns Dados do arquivo recuperado
+   * @throws Se houver erro na requisicao ou arquivo nao encontrado
    *
    * @example
    * const arquivo = await client.recuperarArquivos('meu-bucket', 'imagens/avatar.jpg');
    */
-  async recuperarArquivos(bucket, key) {
+  async recuperarArquivos(bucket: string, key: string): Promise<RecuperarArquivoResult> {
     this._validarBucket(bucket);
 
     if (!key || typeof key !== "string" || key.trim() === "") {
@@ -140,7 +228,7 @@ class PolgoUploadClient {
     const finalUrl = `${this.urls.recuperar}?${queryParams.toString()}`;
 
     try {
-      const response = await axios.get(finalUrl, {
+      const response = await axios.get<RecuperarArquivoResult>(finalUrl, {
         headers: {
           Authorization: `Bearer ${this.token}`,
         },
@@ -149,21 +237,21 @@ class PolgoUploadClient {
 
       return response.data;
     } catch (error) {
-      this._handleError(error, "recuperar arquivo");
+      this._handleError(error as AxiosError<{ message?: string }>, "recuperar arquivo");
     }
   }
 
   /**
    * Lista arquivos de um diretorio no bucket
-   * @param {string} bucket - Nome do bucket
-   * @param {string} key - Chave (caminho) do diretorio no bucket
-   * @returns {Promise<Array>} Lista de arquivos encontrados
-   * @throws {Error} Se houver erro na requisicao ou diretorio nao encontrado
+   * @param bucket - Nome do bucket
+   * @param key - Chave (caminho) do diretorio no bucket
+   * @returns Lista de arquivos encontrados
+   * @throws Se houver erro na requisicao ou diretorio nao encontrado
    *
    * @example
    * const arquivos = await client.listarArquivos('meu-bucket', 'imagens/perfil');
    */
-  async listarArquivos(bucket, key) {
+  async listarArquivos(bucket: string, key: string): Promise<ArquivoListItem[]> {
     this._validarBucket(bucket);
 
     if (!key || typeof key !== "string" || key.trim() === "") {
@@ -178,7 +266,7 @@ class PolgoUploadClient {
     const finalUrl = `${this.urls.listar}?${queryParams.toString()}`;
 
     try {
-      const response = await axios.get(finalUrl, {
+      const response = await axios.get<{ arquivos?: ArquivoListItem[] }>(finalUrl, {
         headers: {
           Authorization: `Bearer ${this.token}`,
         },
@@ -187,32 +275,17 @@ class PolgoUploadClient {
 
       return response.data.arquivos || [];
     } catch (error) {
-      this._handleError(error, "listar arquivos");
+      this._handleError(error as AxiosError<{ message?: string }>, "listar arquivos");
     }
   }
 
   /**
    * Faz upload de um arquivo para o bucket especificado
-   * @param {File|Buffer} bufferArquivo - O arquivo a ser enviado
-   * @param {string} bucket - Nome do bucket de destino
-   * @param {Object} options - Opcoes do upload
-   * @param {string} [options.diretorio] - Diretorio de destino no bucket
-   * @param {string} [options.nomeArquivo] - Nome personalizado para o arquivo
-   * @param {false|"jpeg"|"webp"|"avif"|Object} [options.otimizacao] - Otimizacao conforme a lambda espera:
-   *  - false: desabilita otimizacao
-   *  - "jpeg" | "webp" | "avif": formato desejado (padrao: "webp")
-   *  - { formato }: compatibilidade com versoes antigas (aceita "none" para desabilitar)
-   * @param {boolean} [options.forcarConversao=false] - Forca conversao mesmo se o arquivo resultante for maior que o original
-   * @param {Function} [onProgress] - Callback para acompanhar progresso do upload (recebe percentual 0-100)
-   * @returns {Promise<Object>} Dados de resposta do upload contendo:
-   *  - {string} id - ID unico do arquivo
-   *  - {string} endereco - URL do arquivo no bucket
-   *  - {number} tamanhoOriginal - Tamanho original do arquivo em bytes
-   *  - {number} tamanhoOtimizado - Tamanho do arquivo apos otimizacao em bytes
-   *  - {boolean} otimizado - Indica se o arquivo foi otimizado
-   *  - {string} formatoOriginal - Formato MIME original do arquivo
-   *  - {string} formatoOtimizado - Formato MIME apos otimizacao
-   *  - {number} economiaPercentual - Percentual de economia de espaco (pode ser negativo se forcar conversao)
+   * @param bufferArquivo - O arquivo a ser enviado
+   * @param bucket - Nome do bucket de destino
+   * @param options - Opcoes do upload
+   * @param onProgress - Callback para acompanhar progresso do upload (recebe percentual 0-100)
+   * @returns Dados de resposta do upload
    *
    * @example
    * // Upload simples
@@ -238,14 +311,13 @@ class PolgoUploadClient {
    * await client.uploadFile(file, 'meu-bucket', {
    *   otimizacao: false
    * });
-   *
-   * @example
-   * // Upload com compatibilidade de formato antigo
-   * await client.uploadFile(file, 'meu-bucket', {
-   *   otimizacao: { formato: 'webp' }
-   * });
    */
-  async uploadFile(bufferArquivo, bucket, options = {}, onProgress) {
+  async uploadFile(
+    bufferArquivo: File | Blob,
+    bucket: string,
+    options: UploadOptions = {},
+    onProgress?: ProgressCallback
+  ): Promise<UploadResult> {
     this._validarBucket(bucket);
 
     if (!bufferArquivo) {
@@ -262,28 +334,25 @@ class PolgoUploadClient {
 
     if (options.diretorio) queryParams.append("diretorio", options.diretorio);
     if (options.nomeArquivo) queryParams.append("nomeArquivo", options.nomeArquivo);
-    if (options.forcarConversao === true || options.forcarConversao === "true" || options.forcarConversao === 1 || options.forcarConversao === "1") {
+    if (options.forcarConversao === true) {
       queryParams.append("forcarConversao", "true");
     }
 
     // Parametro de otimizacao conforme a lambda espera (false|0|jpeg|webp|avif; padrao: webp)
-    const normalizarOtimizacao = (otimizacao) => {
+    const normalizarOtimizacao = (otimizacao: UploadOptions["otimizacao"]): string => {
       if (otimizacao === undefined || otimizacao === null) return "webp";
-      if (otimizacao === false || otimizacao === 0 || otimizacao === "0") return "false";
+      if (otimizacao === false) return "false";
 
       // Compatibilidade com a forma antiga: { formato: 'webp' }
       if (typeof otimizacao === "object") {
         const formato = otimizacao?.formato;
         if (formato === undefined || formato === null) return "webp";
-        if (formato === false || formato === "false" || formato === "0" || formato === "none") return "false";
+        if (formato === "false" || formato === "0" || formato === "none") return "false";
         if (formato === "jpg") return "jpeg";
         if (formato === "jpeg" || formato === "webp" || formato === "avif") return formato;
         return "webp";
       }
 
-      if (otimizacao === "false") return "false";
-      if (otimizacao === "none") return "false";
-      if (otimizacao === "jpg") return "jpeg";
       if (otimizacao === "jpeg" || otimizacao === "webp" || otimizacao === "avif") return otimizacao;
       return "webp";
     };
@@ -296,12 +365,12 @@ class PolgoUploadClient {
     form.append("bucket", bucket);
 
     try {
-      const response = await axios.post(finalUrl, form, {
+      const response = await axios.post<UploadResult>(finalUrl, form, {
         headers: {
           Authorization: `Bearer ${this.token}`,
         },
         timeout: this.timeout,
-        onUploadProgress: (progressEvent) => {
+        onUploadProgress: (progressEvent: AxiosProgressEvent) => {
           if (typeof onProgress === "function" && progressEvent.total) {
             const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
             onProgress(percentCompleted);
@@ -311,9 +380,11 @@ class PolgoUploadClient {
 
       return response.data;
     } catch (error) {
-      this._handleError(error, "fazer upload");
+      this._handleError(error as AxiosError<{ message?: string }>, "fazer upload");
     }
   }
 }
 
 export { PolgoUploadClient };
+export default PolgoUploadClient;
+

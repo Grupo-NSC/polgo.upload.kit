@@ -1,24 +1,37 @@
 {
   "name": "polgo-upload-kit",
-  "version": "1.2.4",
+  "version": "2.0.0",
   "type": "module",
-  "main": "src/polgoUploadClient.js",
+  "main": "./dist/polgoUploadClient.js",
+  "types": "./dist/polgoUploadClient.d.ts",
   "exports": {
-    ".": "./src/polgoUploadClient.js",
-    "./src/polgoUploadClient": "./src/polgoUploadClient.js",
-    "./src/polgoUploadClient.js": "./src/polgoUploadClient.js"
+    ".": {
+      "types": "./dist/polgoUploadClient.d.ts",
+      "import": "./dist/polgoUploadClient.js"
+    },
+    "./src/polgoUploadClient": {
+      "types": "./dist/polgoUploadClient.d.ts",
+      "import": "./dist/polgoUploadClient.js"
+    },
+    "./src/polgoUploadClient.js": {
+      "types": "./dist/polgoUploadClient.d.ts",
+      "import": "./dist/polgoUploadClient.js"
+    }
   },
   "files": [
+    "dist",
     "src"
   ],
   "scripts": {
-    "build": "webpack"
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "upload",
     "s3",
     "polgo",
-    "file-upload"
+    "file-upload",
+    "typescript"
   ],
   "author": "Grupo NSC",
   "license": "ISC",
@@ -32,8 +45,10 @@
   },
   "homepage": "https://github.com/Grupo-NSC/polgo-upload-kit#readme",
   "dependencies": {
-    "axios": "^1.7.7",
-    "form-data": "^4.0.1",
-    "mime-types": "^2.1.35"
+    "axios": "^1.7.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3"
   }
 }
