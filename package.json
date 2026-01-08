@@ -1,10 +1,12 @@
 {
   "name": "polgo-upload-kit",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "type": "module",
   "main": "src/polgoUploadClient.js",
   "exports": {
-    ".": "./src/polgoUploadClient.js"
+    ".": "./src/polgoUploadClient.js",
+    "./src/polgoUploadClient": "./src/polgoUploadClient.js",
+    "./src/polgoUploadClient.js": "./src/polgoUploadClient.js"
   },
   "files": [
     "src"
