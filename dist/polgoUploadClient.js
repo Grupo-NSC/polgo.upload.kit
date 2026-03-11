@@ -3,6 +3,14 @@ import axios from "axios";
  * Cliente para upload de arquivos para o servico Polgo
  */
 class PolgoUploadClient {
+    isProd;
+    ambiente;
+    token;
+    stack;
+    timeout;
+    baseUrl;
+    endpoints;
+    urls;
     /**
      * Inicializa o cliente de upload
      * @param config - Configuracoes do cliente
@@ -36,6 +44,41 @@ class PolgoUploadClient {
             recuperar: `${this.baseUrl}${this.endpoints.recuperar}`,
             listar: `${this.baseUrl}${this.endpoints.listar}`
         };
+    }
+    /**
+     * Converte a entrada de upload para Blob mantendo compatibilidade com browser e Node/Lambda
+     */
+    _toBlob(input, mimeType) {
+        const type = mimeType || (input instanceof Blob ? input.type : "application/octet-stream");
+        if (input instanceof Blob) {
+            return input.type ? input : new Blob([input], { type });
+        }
+        if (typeof Buffer !== "undefined" && Buffer.isBuffer(input)) {
+            return new Blob([Uint8Array.from(input)], { type });
+        }
+        if (input instanceof Uint8Array) {
+            return new Blob([Uint8Array.from(input)], { type });
+        }
+        if (input instanceof ArrayBuffer) {
+            return new Blob([input], { type });
+        }
+        if (ArrayBuffer.isView(input)) {
+            const view = input;
+            const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+            return new Blob([Uint8Array.from(bytes)], { type });
+        }
+        throw new Error("Tipo de arquivo nao suportado para upload");
+    }
+    /**
+     * Define um nome padrao quando nao houver nome de arquivo explicito
+     */
+    _resolveFileName(input, providedName) {
+        if (providedName)
+            return providedName;
+        if (typeof File !== "undefined" && input instanceof File && input.name) {
+            return input.name;
+        }
+        return "uploaded_file";
     }
     /**
      * Valida se o bucket foi informado
@@ -188,8 +231,8 @@ class PolgoUploadClient {
         if (!bufferArquivo) {
             throw new Error("Arquivo e obrigatorio");
         }
-        const mimeType = bufferArquivo.type;
-        const fileBlob = new Blob([bufferArquivo], { type: mimeType });
+        const fileBlob = this._toBlob(bufferArquivo, options.mimeType);
+        const fileName = this._resolveFileName(bufferArquivo, options.nomeArquivo);
         const queryParams = new URLSearchParams({
             ambiente: this.ambiente,
             stack: this.stack,
@@ -227,7 +270,7 @@ class PolgoUploadClient {
         queryParams.append("otimizacao", normalizarOtimizacao(options.otimizacao));
         const finalUrl = `${this.urls.upload}?${queryParams.toString()}`;
         const form = new FormData();
-        form.append("file", fileBlob, options.nomeArquivo || "uploaded_file");
+        form.append("file", fileBlob, fileName);
         form.append("bucket", bucket);
         try {
             const response = await axios.post(finalUrl, form, {

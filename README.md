@@ -2,6 +2,11 @@
 
 Cliente JavaScript para upload de arquivos para o servico Polgo (S3).
 
+## Compatibilidade
+
+- Node.js 20+ (inclui Node.js 24)
+- AWS Lambda (Node.js)
+
 ## Instalacao
 
 ```bash
@@ -18,6 +23,29 @@ const client = new PolgoUploadClient({
   stack: 'nome-da-sua-stack',
   isProd: true // false para ambiente dev
 });
+```
+
+### Uso em AWS Lambda (Buffer)
+
+```javascript
+import { PolgoUploadClient } from 'polgo-upload-kit';
+
+export const handler = async () => {
+  const client = new PolgoUploadClient({
+    token: process.env.POLGO_TOKEN,
+    stack: process.env.POLGO_STACK,
+    isProd: true
+  });
+
+  const conteudo = Buffer.from('arquivo de exemplo');
+
+  const resultado = await client.uploadFile(conteudo, 'nome-do-bucket', {
+    nomeArquivo: 'arquivo.txt',
+    mimeType: 'text/plain'
+  });
+
+  return resultado;
+};
 ```
 
 ## Metodos

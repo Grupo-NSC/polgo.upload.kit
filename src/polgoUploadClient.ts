@@ -39,6 +39,8 @@ export interface UploadOptions {
   diretorio?: string;
   /** Nome personalizado para o arquivo */
   nomeArquivo?: string;
+  /** Tipo MIME do arquivo (util para uploads com Buffer/Uint8Array/ArrayBuffer) */
+  mimeType?: string;
   /**
    * Otimizacao conforme a lambda espera:
    * - false: desabilita otimizacao
@@ -100,6 +102,9 @@ export interface ArquivoListItem {
  */
 export type ProgressCallback = (percentCompleted: number) => void;
 
+/** Tipos de entrada aceitos para upload em browser e Node/Lambda */
+export type UploadInput = File | Blob | Buffer | Uint8Array | ArrayBuffer;
+
 /**
  * URLs internas do cliente
  */
@@ -159,6 +164,50 @@ class PolgoUploadClient {
       recuperar: `${this.baseUrl}${this.endpoints.recuperar}`,
       listar: `${this.baseUrl}${this.endpoints.listar}`
     };
+  }
+
+  /**
+   * Converte a entrada de upload para Blob mantendo compatibilidade com browser e Node/Lambda
+   */
+  private _toBlob(input: UploadInput, mimeType?: string): Blob {
+    const type = mimeType || (input instanceof Blob ? input.type : "application/octet-stream");
+
+    if (input instanceof Blob) {
+      return input.type ? input : new Blob([input], { type });
+    }
+
+    if (typeof Buffer !== "undefined" && Buffer.isBuffer(input)) {
+      return new Blob([Uint8Array.from(input)], { type });
+    }
+
+    if (input instanceof Uint8Array) {
+      return new Blob([Uint8Array.from(input)], { type });
+    }
+
+    if (input instanceof ArrayBuffer) {
+      return new Blob([input], { type });
+    }
+
+    if (ArrayBuffer.isView(input)) {
+      const view = input as ArrayBufferView;
+      const bytes = new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+      return new Blob([Uint8Array.from(bytes)], { type });
+    }
+
+    throw new Error("Tipo de arquivo nao suportado para upload");
+  }
+
+  /**
+   * Define um nome padrao quando nao houver nome de arquivo explicito
+   */
+  private _resolveFileName(input: UploadInput, providedName?: string): string {
+    if (providedName) return providedName;
+
+    if (typeof File !== "undefined" && input instanceof File && input.name) {
+      return input.name;
+    }
+
+    return "uploaded_file";
   }
 
   /**
@@ -313,7 +362,7 @@ class PolgoUploadClient {
    * });
    */
   async uploadFile(
-    bufferArquivo: File | Blob,
+    bufferArquivo: UploadInput,
     bucket: string,
     options: UploadOptions = {},
     onProgress?: ProgressCallback
@@ -324,8 +373,8 @@ class PolgoUploadClient {
       throw new Error("Arquivo e obrigatorio");
     }
 
-    const mimeType = bufferArquivo.type;
-    const fileBlob = new Blob([bufferArquivo], { type: mimeType });
+    const fileBlob = this._toBlob(bufferArquivo, options.mimeType);
+    const fileName = this._resolveFileName(bufferArquivo, options.nomeArquivo);
 
     const queryParams = new URLSearchParams({
       ambiente: this.ambiente,
@@ -361,7 +410,7 @@ class PolgoUploadClient {
 
     const finalUrl = `${this.urls.upload}?${queryParams.toString()}`;
     const form = new FormData();
-    form.append("file", fileBlob, options.nomeArquivo || "uploaded_file");
+    form.append("file", fileBlob, fileName);
     form.append("bucket", bucket);
 
     try {

@@ -35,6 +35,8 @@ export interface UploadOptions {
     diretorio?: string;
     /** Nome personalizado para o arquivo */
     nomeArquivo?: string;
+    /** Tipo MIME do arquivo (util para uploads com Buffer/Uint8Array/ArrayBuffer) */
+    mimeType?: string;
     /**
      * Otimizacao conforme a lambda espera:
      * - false: desabilita otimizacao
@@ -93,6 +95,8 @@ export interface ArquivoListItem {
  * Callback de progresso do upload
  */
 export type ProgressCallback = (percentCompleted: number) => void;
+/** Tipos de entrada aceitos para upload em browser e Node/Lambda */
+export type UploadInput = File | Blob | Buffer | Uint8Array | ArrayBuffer;
 /**
  * Cliente para upload de arquivos para o servico Polgo
  */
@@ -110,6 +114,14 @@ declare class PolgoUploadClient {
      * @param config - Configuracoes do cliente
      */
     constructor(config: PolgoUploadClientConfig);
+    /**
+     * Converte a entrada de upload para Blob mantendo compatibilidade com browser e Node/Lambda
+     */
+    private _toBlob;
+    /**
+     * Define um nome padrao quando nao houver nome de arquivo explicito
+     */
+    private _resolveFileName;
     /**
      * Valida se o bucket foi informado
      * @param bucket - Nome do bucket
@@ -176,7 +188,7 @@ declare class PolgoUploadClient {
      *   otimizacao: false
      * });
      */
-    uploadFile(bufferArquivo: File | Blob, bucket: string, options?: UploadOptions, onProgress?: ProgressCallback): Promise<UploadResult>;
+    uploadFile(bufferArquivo: UploadInput, bucket: string, options?: UploadOptions, onProgress?: ProgressCallback): Promise<UploadResult>;
 }
 export { PolgoUploadClient };
 export default PolgoUploadClient;

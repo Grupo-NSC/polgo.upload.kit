@@ -26,6 +26,9 @@
     "build": "tsc",
     "prepublishOnly": "npm run build"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "keywords": [
     "upload",
     "s3",
@@ -48,7 +51,7 @@
     "axios": "^1.7.7"
   },
   "devDependencies": {
-    "@types/node": "^22.10.5",
-    "typescript": "^5.7.3"
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.2"
   }
 }
